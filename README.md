@@ -1,6 +1,6 @@
 # Subgraph-SAT-Solver
 
-C++17-Implementierung einer Reduktionskette, die Instanzen des Erfüllbarkeitsproblems (SAT) auf das Subgraph-Problem abbildet und von einem externen Subgraph-Programm entscheiden lässt. Die theoretische Grundlage ist die wissenschaftliche Arbeit des Autors, siehe [Wissenschaftlicher Hintergrund](#wissenschaftlicher-hintergrund). Das zugehörige Subgraph-Programm ist ein eigenes Projekt: [subgraph](https://github.com/hjstephan86/subgraph).
+C++17-Implementierung einer Reduktionskette, die Instanzen des Erfüllbarkeitsproblems (SAT) auf das Subgraph-Problem abbildet und von einem externen Subgraph-Programm entscheiden lässt. Die theoretische Grundlage ist die wissenschaftliche Arbeit des Autors, siehe [Wissenschaftlicher Hintergrund](#wissenschaftlicher-hintergrund).
 
 ## Inhaltsverzeichnis
 
@@ -50,7 +50,7 @@ DIMACS-CNF  →  3-SAT  →  Clique  →  Subgraph-Instanz  →  externes Subgra
 | `Reduction.h`, `Reduction.cpp` | Graphklasse (Adjazenzmatrix, JSON-Export), die drei Reduktionsstufen, Extraktor für Belegungen |
 | `SubgraphSATSolver.h`, `SubgraphSATSolver.cpp` | Solver-Klasse, Konfiguration, Ergebnistyp, Hilfsfunktionen (Dateiein- und -ausgabe, Validierung) |
 | `main.cpp` | Kommandozeilenprogramm |
-| `tests/TestCnf.cpp` | Testsuite (15 Tests) |
+| `tests/TestCnf.cpp` | Testsuite (40 Tests) |
 | `doc/report.md` | Coverage-Bericht |
 | `doc/tests.txt` | Ausgabe eines Testlaufs |
 | `CMakeLists.txt` | Build-Konfiguration |
@@ -119,9 +119,9 @@ Alternativ über CTest:
 ctest --output-on-failure
 ```
 
-Die Testsuite umfasst 15 Tests in sieben Kategorien: CNF-Parsing und -Manipulation, SAT-Belegungen, SAT-Analyse, Graphoperationen und JSON-Export, Reduktionskette, Solver-Hilfsfunktionen sowie JSON- und Kommandozeilen-Parsing.
+Die Testsuite umfasst 40 Tests in sieben Kategorien: CNF-Parsing und -Manipulation, SAT-Belegungen, SAT-Analyse, Graphoperationen und JSON-Export, Reduktionskette, Solver-Hilfsfunktionen sowie JSON- und Kommandozeilen-Parsing. Die erweiterten Fälle prüfen unter anderem ungültige Eingaben, Grenzwerte, Serialisierungs-Roundtrips, negative Unit-Propagation und inkompatible Literale in der Clique-Reduktion.
 
-Der Coverage-Bericht in `doc/report.md` weist für den Stand vom 9. Juli 2026 eine Zeilenabdeckung von 87,0 % aus. Die schwächsten Bereiche sind die Anbindung des externen Programms und Fehlerpfade. Ein Beispiel für die Ausgabe eines Testlaufs liegt in `doc/tests.txt`.
+Der Coverage-Bericht in `doc/report.md` bezieht sich auf einen früheren Teststand mit 15 Tests; die Abdeckung der aktuellen Testsuite wurde nicht gemessen. Ein Beispiel für die Ausgabe eines Testlaufs liegt in `doc/tests.txt`.
 
 Test 13 prüft das Fehlerverhalten ohne verfügbares Subgraph-Programm und erwartet den Status `SAT_ERROR`. Die dabei ausgegebene Fehlermeldung des Betriebssystems gehört zum erwarteten Verlauf.
 
@@ -220,8 +220,8 @@ Das Python-Projekt [subgraph](https://github.com/hjstephan86/subgraph) arbeitet 
 
 ## Bekannte Einschränkungen
 
-- **Extraktion der Belegung:** `SubgraphToSATExtractor` wertet das Mapping der Clique-Knoten derzeit nicht aus. Der Solver setzt nach einem positiven Subgraph-Ergebnis alle Variablen auf wahr. Ist die Validierung aktiv (Standard), wird diese Belegung gegen die Formel geprüft; erfüllt sie die Formel nicht, endet der Lauf mit `SAT_ERROR` ("Assignment validation failed"). Eine aus dem Mapping abgeleitete Belegung ist noch umzusetzen.
-- **Antwortformat des Subgraph-Programms:** Die Auswertung prüft ausschließlich auf die Zeichenfolge `"is_subgraph": true`. Das Mapping selbst wird nicht eingelesen.
+- **Extraktion der Belegung:** Liefert das Subgraph-Programm in der Ausgabe `"mapping": [i0, i1, ...]` (Indizes der Knoten des Quellgraphen, wie der Adapter `subgraph` aus [csubgraph](https://github.com/hjstephan86/csubgraph) im Modus `exact`), wird daraus die Belegung abgeleitet: Knoten i des Clique-Graphen ist das i-te Literalvorkommen der 3-SAT-Formel, das gewählte Literal wird wahr gesetzt. Fehlt das Mapping, setzt der Solver alle Variablen auf wahr; die Validierung schlägt dann bei vielen erfüllbaren Formeln mit `SAT_ERROR` ("Assignment validation failed") fehl.
+- **Antwortformat des Subgraph-Programms:** Die Auswertung prüft auf die Zeichenfolge `"is_subgraph": true` und liest optional `"mapping"` (Liste von Ganzzahlen).
 - **Größe der Reduktion:** Der Clique-Graph besitzt einen Knoten je Literal-Vorkommen in der 3-SAT-Formel. Der Speicherbedarf der Adjazenzmatrix wächst quadratisch mit der Literalzahl.
 - **Plattformen:** Die vorkompilierten Artefakte in `build/` stammen von Windows mit MinGW. Die Linux-Variante der Prozessanbindung (`fork`/`execl`) ist implementiert, wird von der Testsuite aber nicht gegen ein echtes Subgraph-Programm geprüft.
 - **Zeitlimit:** Die Option `--timeout` wird an die Konfiguration übergeben. Eine Durchsetzung beim Prozessaufruf ist in `call_subgraph_binary` nicht implementiert.

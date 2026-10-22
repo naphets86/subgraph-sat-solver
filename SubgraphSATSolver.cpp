@@ -230,6 +230,33 @@ SATSolverResult SubgraphSATSolver::solve_internal(const CNFFormula& formula) {
             assignment.set(var, true);
         }
         
+        // Das Subgraph-Programm kann die Abbildung der Zielknoten auf Knoten des Quellgraphen
+        // mitliefern ("mapping": [Knotenindex, ...]). Daraus ergibt sich die Belegung:
+        // Knoten i des Clique-Graphen entspricht dem i-ten Literalvorkommen der 3-SAT-Formel.
+        // Fehlt das Mapping, bleibt es bei der Belegung "alle Variablen wahr".
+        {
+            std::vector<int> graph_nodes;
+            if (parse_mapping(*mapping_opt, graph_nodes)) {
+                const CNFFormula& f3 = reducer.formula();
+                std::vector<std::pair<int, int>> clique_nodes;   // Index -> (Klausel, Literalposition)
+                for (int c = 0; c < static_cast<int>(f3.clauses().size()); ++c) {
+                    for (int l = 0; l < static_cast<int>(f3.clause(c).size()); ++l) {
+                        clique_nodes.push_back({c, l});
+                    }
+                }
+                std::vector<std::pair<int, int>> chosen;
+                for (int node : graph_nodes) {
+                    if (node >= 0 && node < static_cast<int>(clique_nodes.size())) {
+                        chosen.push_back(clique_nodes[node]);
+                    }
+                }
+                SATAssignment full = SubgraphToSATExtractor::extract_assignment(f3, chosen);
+                for (int var = 1; var <= formula.num_variables(); ++var) {
+                    assignment.set(var, full.value(var));
+                }
+            }
+        }
+        
         auto extraction_end = std::chrono::high_resolution_clock::now();
         result.extraction_time_ms =
             std::chrono::duration<double, std::milli>(extraction_end - extraction_start).count();
@@ -383,6 +410,30 @@ bool SubgraphSATSolver::call_subgraph_binary(
         
         return true;
     #endif
+}
+
+bool SubgraphSATSolver::parse_mapping(const std::string& result_json, std::vector<int>& nodes) {
+    nodes.clear();
+    const std::string key = "\"mapping\"";
+    size_t pos = result_json.find(key);
+    if (pos == std::string::npos) return false;
+    pos = result_json.find('[', pos + key.size());
+    if (pos == std::string::npos) return false;
+    const size_t end = result_json.find(']', pos);
+    if (end == std::string::npos) return false;
+    
+    size_t i = pos + 1;
+    while (i < end) {
+        while (i < end && !(result_json[i] >= '0' && result_json[i] <= '9')) ++i;
+        if (i >= end) break;
+        long value = 0;
+        while (i < end && result_json[i] >= '0' && result_json[i] <= '9') {
+            value = value * 10 + (result_json[i] - '0');
+            ++i;
+        }
+        nodes.push_back(static_cast<int>(value));
+    }
+    return !nodes.empty();
 }
 
 std::optional<std::string> SubgraphSATSolver::parse_subgraph_result(

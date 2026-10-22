@@ -104,6 +104,9 @@ private:
     
     std::optional<std::string> parse_subgraph_result(
         const std::string& result_json);
+    
+    /// Liest optional "mapping": [i0, i1, ...] (Indizes der Knoten des Quellgraphen) aus der Ausgabe.
+    static bool parse_mapping(const std::string& result_json, std::vector<int>& nodes);
 };
 
 /**

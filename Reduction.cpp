@@ -9,6 +9,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <set>
 
 namespace sat {
 
@@ -246,28 +248,39 @@ bool SATToSubgraphReducer::validate_reduction() const {
 
 SATAssignment SubgraphToSATExtractor::extract_assignment(
     const CNFFormula& formula_3sat,
-    const std::vector<std::pair<int, int>>& /*node_mapping*/) {
+    const std::vector<std::pair<int, int>>& node_mapping) {
     
     /**
-     * Gegeben ein Mapping von Clique-Knoten zu Graph-Knoten:
-     * 
-     * Für jeden Knoten im Mapping:
-     *   node = (clause_id, lit_idx)
+     * Gegeben die Clique-Knoten (clause_id, lit_idx), die im Subgraph-Ergebnis
+     * enthalten sind (je Klausel einer):
+     *
      *   lit = formula_3sat.clause(clause_id)[lit_idx]
-     *   
-     *   Setze Variable entsprechend dem Literal
+     *   Setze die Variable von lit so, dass lit wahr ist.
+     *
+     * Da die Kanten des Clique-Graphen widerspruechliche Literale ausschliessen,
+     * ist die Belegung konsistent. Jede Klausel enthaelt ein wahres Literal.
+     * Nicht belegte Variablen werden auf True gesetzt (beliebig, ohne Auswirkung).
      */
     
     SATAssignment assignment(formula_3sat.num_variables());
     std::set<int> assigned_vars;
     
-    // for (const auto& [clique_node, graph_node] : node_mapping) {
-        // clique_node = (clause_id, lit_idx)
-        // Für einfachheit: Wir verwenden hier nur Teile des Mappings
-        // In voller Implementierung würde das Mapping explizit konstruiert
-    // }
+    for (const auto& node : node_mapping) {
+        const int clause_id = node.first;
+        const int lit_idx = node.second;
+        if (clause_id < 0 || clause_id >= static_cast<int>(formula_3sat.clauses().size())) continue;
+        const auto& clause = formula_3sat.clause(clause_id);
+        if (lit_idx < 0 || lit_idx >= static_cast<int>(clause.size())) continue;
+        
+        const int lit = clause[lit_idx];
+        const int var = std::abs(lit);
+        if (var < 1 || var > formula_3sat.num_variables()) continue;
+        if (assigned_vars.count(var)) continue;   // erste Zuweisung gilt (bei Konsistenz identisch)
+        assignment.set(var, lit > 0);
+        assigned_vars.insert(var);
+    }
     
-    // Greedy-Ansatz: Für unzugewiesene Variablen, setze auf True
+    // Nicht durch das Mapping festgelegte Variablen: True
     for (int var = 1; var <= formula_3sat.num_variables(); ++var) {
         if (assigned_vars.find(var) == assigned_vars.end()) {
             assignment.set(var, true);

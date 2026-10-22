@@ -32,7 +32,7 @@ int passed_count = 0;
 int failed_count = 0;
 
 #define TEST(name) \
-    { test_count++; std::cout << "Test " << test_count << ": " << name << " ... "; \
+    { test_count++; std::cout << "Test " << test_count << ": " << name << " ... " << std::flush; \
         try {
 
 #define PASS() \
@@ -58,6 +58,17 @@ std::string get_test_path(const std::string& filename) {
 #else
     return "/tmp/" + filename;
 #endif
+}
+
+void write_test_file(const std::string& filename, const std::string& contents) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot create test file: " + filename);
+    }
+    file << contents;
+    if (!file) {
+        throw std::runtime_error("Cannot write test file: " + filename);
+    }
 }
 
 // Struct und Helper zum Testen von CLI-Logik aus main.cpp für Coverage-Validierung
@@ -294,6 +305,22 @@ void test_subgraph_to_sat_extractor() {
     PASS()
 }
 
+void test_extractor_uses_mapping() {
+    TEST("SubgraphToSATExtractor Belegung aus Mapping")
+    // (-1 v 2) und (1 v -3): gewaehlte Literale -1 (Klausel 0, Pos. 0) und -3 (Klausel 1, Pos. 1)
+    std::string dimacs = "p cnf 3 2\n-1 2 0\n1 -3 0\n";
+    CNFFormula formula = SATSolverUtils::parse_dimacs_string(dimacs);
+    
+    std::vector<std::pair<int, int>> mapping = {{0, 0}, {1, 1}};
+    auto assign = SubgraphToSATExtractor::extract_assignment(formula, mapping);
+    
+    ASSERT(assign.value(1) == false);
+    ASSERT(assign.value(3) == false);
+    ASSERT(assign.value(2) == true);   // nicht festgelegt -> True
+    ASSERT(assign.satisfies_formula(formula));
+    PASS()
+}
+
 void test_invalid_clique_reduction_exception() {
     TEST("ThreeSATToCliqueReducer Exception on Non-3SAT")
     CNFFormula formula;
@@ -374,6 +401,19 @@ void test_solver_parse_subgraph_result() {
         "is_subgraph": false
     })");
     ASSERT(!opt2.has_value());
+
+    std::vector<int> nodes = {99};
+    ASSERT(SubgraphSATSolver::parse_mapping(
+        R"({"is_subgraph":true,"mapping":[0, 2, 10]})", nodes));
+    ASSERT_EQ(nodes.size(), 3);
+    ASSERT_EQ(nodes[0], 0);
+    ASSERT_EQ(nodes[1], 2);
+    ASSERT_EQ(nodes[2], 10);
+
+    ASSERT(!SubgraphSATSolver::parse_mapping(R"({"mapping":[]})", nodes));
+    ASSERT(nodes.empty());
+    ASSERT(!SubgraphSATSolver::parse_mapping(R"({"mapping":[1})", nodes));
+    ASSERT(nodes.empty());
     PASS()
 }
 
@@ -408,6 +448,434 @@ void test_cli_argument_parsing() {
     PASS()
 }
 
+void test_dimacs_parser_edge_cases() {
+    TEST("DIMACS parser comments, whitespace and signed literals")
+    const std::string path = get_test_path("test_dimacs_edge_cases.cnf");
+    write_test_file(path, "   c leading comment\n \t \n  p cnf 3 2\n 1 -2 0\n\t-3 0\n");
+
+    CNFFormula formula(path);
+    ASSERT_EQ(formula.num_variables(), 3);
+    ASSERT_EQ(formula.num_clauses(), 2);
+    ASSERT_EQ(formula.clause(0).size(), 2);
+    ASSERT_EQ(formula.clause(0)[0], 1);
+    ASSERT_EQ(formula.clause(0)[1], -2);
+    ASSERT_EQ(formula.clause(1)[0], -3);
+    PASS()
+}
+
+void test_parser_invalid_inputs() {
+    TEST("DIMACS parser rejects invalid headers and literals")
+    bool missing_file_thrown = false;
+    try {
+        CNFFormula missing(get_test_path("missing_sat_test_input.cnf"));
+    } catch (const std::runtime_error&) {
+        missing_file_thrown = true;
+    }
+    ASSERT(missing_file_thrown);
+
+    const std::string invalid_literal_path = get_test_path("test_invalid_literal.cnf");
+    write_test_file(invalid_literal_path, "p cnf 2 1\n3 0\n");
+    bool invalid_literal_thrown = false;
+    try {
+        CNFFormula invalid_literal(invalid_literal_path);
+    } catch (const std::invalid_argument&) {
+        invalid_literal_thrown = true;
+    }
+    ASSERT(invalid_literal_thrown);
+
+    const std::string invalid_header_path = get_test_path("test_invalid_header.cnf");
+    write_test_file(invalid_header_path, "p wrong 2 0\n");
+    bool invalid_header_thrown = false;
+    try {
+        CNFFormula invalid_header(invalid_header_path);
+    } catch (const std::runtime_error&) {
+        invalid_header_thrown = true;
+    }
+    ASSERT(invalid_header_thrown);
+    PASS()
+}
+
+void test_cnf_statistics() {
+    TEST("CNF statistics exact values")
+    CNFFormula formula;
+    formula.set_num_variables(4);
+    formula.add_clause({1});
+    formula.add_clause({-1, 2, 3});
+
+    const auto stats = formula.compute_statistics();
+    ASSERT_EQ(stats.num_variables, 4);
+    ASSERT_EQ(stats.num_clauses, 2);
+    ASSERT_EQ(stats.num_literals, 4);
+    ASSERT_EQ(stats.min_clause_size, 1);
+    ASSERT_EQ(stats.max_clause_size, 3);
+    ASSERT(stats.avg_clause_size == 2.0);
+    PASS()
+}
+
+void test_empty_formula_statistics() {
+    TEST("Empty CNF statistics and 3-SAT validity")
+    CNFFormula formula;
+    formula.set_num_variables(2);
+    const auto stats = formula.compute_statistics();
+
+    ASSERT_EQ(stats.num_variables, 2);
+    ASSERT_EQ(stats.num_clauses, 0);
+    ASSERT_EQ(stats.num_literals, 0);
+    ASSERT_EQ(stats.max_clause_size, 0);
+    ASSERT_EQ(stats.min_clause_size, INT_MAX);
+    ASSERT(stats.avg_clause_size == 0.0);
+    ASSERT(formula.is_valid_3sat());
+    PASS()
+}
+
+void test_clause_validation() {
+    TEST("CNF clause validation accepts empty clauses and rejects invalid literals")
+    CNFFormula formula;
+    formula.set_num_variables(2);
+    formula.add_clause({});
+    ASSERT_EQ(formula.num_clauses(), 1);
+
+    bool zero_thrown = false;
+    try {
+        formula.add_clause({0});
+    } catch (const std::invalid_argument&) {
+        zero_thrown = true;
+    }
+    ASSERT(zero_thrown);
+
+    bool out_of_range_thrown = false;
+    try {
+        formula.add_clause(Clause{-3});
+    } catch (const std::invalid_argument&) {
+        out_of_range_thrown = true;
+    }
+    ASSERT(out_of_range_thrown);
+    PASS()
+}
+
+void test_dimacs_round_trip() {
+    TEST("DIMACS serialization round trip")
+    CNFFormula formula;
+    formula.set_num_variables(3);
+    formula.add_clause({1, -3});
+    formula.add_clause({2, 3, -1});
+
+    const std::string path = get_test_path("test_round_trip.cnf");
+    formula.to_file(path);
+    const CNFFormula parsed(path);
+    ASSERT_EQ(parsed.num_variables(), formula.num_variables());
+    ASSERT_EQ(parsed.num_clauses(), formula.num_clauses());
+    ASSERT(parsed.clause(0) == formula.clause(0));
+    ASSERT(parsed.clause(1) == formula.clause(1));
+    ASSERT(parsed.to_dimacs().find("p cnf 3 2") != std::string::npos);
+    PASS()
+}
+
+void test_three_sat_boundary() {
+    TEST("3-SAT validity boundary and conversion no-op")
+    CNFFormula formula;
+    formula.set_num_variables(4);
+    formula.add_clause({1, -2, 3});
+    ASSERT(formula.is_valid_3sat());
+    formula.to_3sat();
+    ASSERT_EQ(formula.num_variables(), 4);
+    ASSERT_EQ(formula.num_clauses(), 1);
+    ASSERT(formula.clause(0) == Clause({1, -2, 3}));
+    PASS()
+}
+
+void test_to_3sat_long_clause() {
+    TEST("Long clause conversion introduces valid helper variables")
+    CNFFormula formula;
+    formula.set_num_variables(7);
+    formula.add_clause({1, 2, 3, 4, 5, 6, 7});
+
+    formula.to_3sat();
+    ASSERT(formula.is_valid_3sat());
+    ASSERT_EQ(formula.num_variables(), 11);
+    ASSERT_EQ(formula.num_clauses(), 5);
+    for (const auto& clause : formula.clauses()) {
+        ASSERT(!clause.empty());
+        ASSERT(clause.size() <= 3);
+        for (Literal lit : clause) {
+            ASSERT(lit >= -formula.num_variables());
+            ASSERT(lit <= formula.num_variables());
+        }
+    }
+    PASS()
+}
+
+void test_simplify_reordered_duplicates() {
+    TEST("Simplify detects reordered duplicate clauses")
+    CNFFormula formula;
+    formula.set_num_variables(3);
+    formula.add_clause({1, 2, -3});
+    formula.add_clause({-3, 1, 2});
+    formula.add_clause({2, 1, -3});
+
+    formula.simplify();
+    ASSERT_EQ(formula.num_clauses(), 1);
+    ASSERT(formula.clause(0) == Clause({-3, 1, 2}));
+    PASS()
+}
+
+void test_unit_propagate_negative_chain() {
+    TEST("Unit propagation follows negative assignments")
+    CNFFormula formula;
+    formula.set_num_variables(3);
+    formula.add_clause({-1});
+    formula.add_clause({1, -2});
+    formula.add_clause({2, -3});
+
+    formula.unit_propagate();
+    ASSERT_EQ(formula.num_clauses(), 0);
+    PASS()
+}
+
+void test_unit_propagate_without_units() {
+    TEST("Unit propagation leaves formulas without units unchanged")
+    CNFFormula formula;
+    formula.set_num_variables(3);
+    formula.add_clause({1, -2});
+    formula.add_clause({2, 3});
+    const auto before = formula.clauses();
+
+    formula.unit_propagate();
+    ASSERT_EQ(formula.clauses().size(), before.size());
+    ASSERT(formula.clause(0) == before[0]);
+    ASSERT(formula.clause(1) == before[1]);
+    PASS()
+}
+
+void test_assignment_unassigned_serialization() {
+    TEST("Assignment serialization omits unassigned variables")
+    SATAssignment assignment(3);
+    assignment.set(2, false);
+
+    ASSERT_EQ(assignment.num_vars(), 3);
+    ASSERT_EQ(assignment.to_string(), "{x2=F}");
+    const auto values = assignment.to_vector();
+    ASSERT_EQ(values.size(), 1);
+    ASSERT_EQ(values[0].first, 2);
+    ASSERT(!values[0].second);
+    PASS()
+}
+
+void test_assignment_empty_clause() {
+    TEST("An empty clause is not satisfied")
+    SATAssignment assignment(1);
+    ASSERT(!assignment.evaluate_clause({}));
+
+    CNFFormula formula;
+    formula.set_num_variables(1);
+    formula.add_clause({});
+    assignment.set(1, true);
+    ASSERT(!assignment.satisfies_formula(formula));
+    PASS()
+}
+
+void test_analyzer_polarity_and_pure_literals() {
+    TEST("Analyzer reports pure variables and all clause polarities")
+    CNFFormula formula;
+    formula.set_num_variables(4);
+    formula.add_clause({1, 2, -3});
+    formula.add_clause({-1, -2, 4});
+    formula.add_clause({3, -4});
+
+    SATAnalyzer analyzer(formula);
+    const auto pure = analyzer.pure_literals();
+    ASSERT(std::find(pure.begin(), pure.end(), 1) == pure.end());
+    ASSERT(std::find(pure.begin(), pure.end(), 2) == pure.end());
+    ASSERT(std::find(pure.begin(), pure.end(), 3) == pure.end());
+    ASSERT(std::find(pure.begin(), pure.end(), 4) == pure.end());
+
+    const auto polarity = analyzer.clause_polarity();
+    ASSERT_EQ(polarity.at(0), 1);
+    ASSERT_EQ(polarity.at(1), -1);
+    ASSERT_EQ(polarity.at(2), 0);
+    ASSERT_EQ(analyzer.estimated_clique_size(), 9);
+    PASS()
+}
+
+void test_analyzer_frequency_counts_variable_once() {
+    TEST("Variable frequency counts at most once per clause")
+    CNFFormula formula;
+    formula.set_num_variables(3);
+    formula.add_clause({1, 1, -1, 2});
+    formula.add_clause({2, 3});
+
+    SATAnalyzer analyzer(formula);
+    const auto frequency = analyzer.variable_frequency();
+    ASSERT_EQ(frequency.size(), 3);
+    ASSERT_EQ(frequency[0], 2);
+    ASSERT(std::find(frequency.begin(), frequency.end(), 1) != frequency.end());
+    ASSERT(std::find(frequency.begin(), frequency.end(), 3) != frequency.end());
+    PASS()
+}
+
+void test_graph_edge_boundaries() {
+    TEST("Graph ignores self-loops and duplicate edges")
+    Graph graph(2);
+    graph.add_edge(0, 0);
+    graph.add_edge(0, 1);
+    graph.add_edge(1, 0);
+    ASSERT_EQ(graph.num_edges(), 1);
+    ASSERT(graph.has_edge(0, 1));
+
+    bool negative_vertex_thrown = false;
+    try {
+        graph.add_edge(-1, 0);
+    } catch (const std::out_of_range&) {
+        negative_vertex_thrown = true;
+    }
+    ASSERT(negative_vertex_thrown);
+
+    bool high_vertex_thrown = false;
+    try {
+        graph.add_edge(0, 2);
+    } catch (const std::out_of_range&) {
+        high_vertex_thrown = true;
+    }
+    ASSERT(high_vertex_thrown);
+    ASSERT(!graph.has_edge(-1, 0));
+    ASSERT(!graph.has_edge(0, 2));
+    PASS()
+}
+
+void test_graph_empty_json_and_neighbors() {
+    TEST("Empty graph JSON and isolated neighbors")
+    Graph empty;
+    ASSERT_EQ(empty.num_vertices(), 0);
+    ASSERT_EQ(empty.num_edges(), 0);
+    ASSERT(empty.to_json().find("\"nodes\": []") != std::string::npos);
+    ASSERT(empty.to_json().find("\"edges\": [\n\n  ]") != std::string::npos);
+
+    Graph graph(3);
+    ASSERT(graph.neighbors(1).empty());
+    ASSERT_EQ(graph.degree(1), 0);
+    PASS()
+}
+
+void test_clique_reduction_edges_and_conflicts() {
+    TEST("Clique reduction links only compatible literals from different clauses")
+    CNFFormula formula;
+    formula.set_num_variables(2);
+    formula.add_clause({1, -1});
+    formula.add_clause({-1});
+
+    ThreeSATToCliqueReducer reducer(formula);
+    const auto reduced = reducer.reduce();
+    const Graph& graph = reduced.first;
+    ASSERT_EQ(reduced.second, 2);
+    ASSERT_EQ(graph.num_vertices(), 3);
+    ASSERT(!graph.has_edge(0, 2));
+    ASSERT(graph.has_edge(1, 2));
+    PASS()
+}
+
+void test_target_clique_edge_counts() {
+    TEST("Target clique sizes have the expected complete edge counts")
+    Graph source(1);
+    const int sizes[] = {0, 1, 4};
+    const int expected_edges[] = {0, 0, 6};
+    for (size_t i = 0; i < 3; ++i) {
+        CliqueToSubgraphReducer reducer(source, sizes[i]);
+        const Graph clique = reducer.create_target_clique();
+        ASSERT_EQ(clique.num_vertices(), sizes[i]);
+        ASSERT_EQ(clique.num_edges(), expected_edges[i]);
+        for (int u = 0; u < sizes[i]; ++u) {
+            ASSERT_EQ(clique.degree(u), sizes[i] - 1);
+        }
+    }
+    PASS()
+}
+
+void test_empty_reduction_chain() {
+    TEST("Empty formula reduces to empty source and target graphs")
+    CNFFormula formula;
+    formula.set_num_variables(0);
+    SATToSubgraphReducer reducer(formula);
+    const auto result = reducer.reduce();
+
+    ASSERT_EQ(result.num_vertices, 0);
+    ASSERT_EQ(result.expected_clique_size, 0);
+    ASSERT(result.source_graph_json.find("\"nodes\": []") != std::string::npos);
+    ASSERT(result.target_graph_json.find("\"nodes\": []") != std::string::npos);
+    ASSERT(reducer.validate_reduction());
+    PASS()
+}
+
+void test_extractor_ignores_invalid_mapping() {
+    TEST("Assignment extractor ignores invalid mapping entries")
+    CNFFormula formula;
+    formula.set_num_variables(2);
+    formula.add_clause({1, 2});
+
+    const std::vector<std::pair<int, int>> mapping = {
+        {-1, 0}, {0, -1}, {0, 2}, {4, 0}
+    };
+    const auto assignment = SubgraphToSATExtractor::extract_assignment(formula, mapping);
+    ASSERT(assignment.is_assigned(1));
+    ASSERT(assignment.is_assigned(2));
+    ASSERT(assignment.value(1));
+    ASSERT(assignment.value(2));
+    ASSERT(assignment.satisfies_formula(formula));
+    PASS()
+}
+
+void test_solver_result_status_rendering() {
+    TEST("Solver result renders every status")
+    SATSolverResult result;
+    ASSERT(result.to_string().find("Status: UNKNOWN") != std::string::npos);
+
+    result.status = SATSolverResult::SATISFIABLE;
+    SATAssignment assignment(1);
+    assignment.set(1, false);
+    result.assignment = assignment;
+    ASSERT(result.is_satisfiable());
+    ASSERT(result.to_string().find("x1=F") != std::string::npos);
+
+    result.status = SATSolverResult::UNSATISFIABLE;
+    ASSERT(result.is_unsatisfiable());
+    ASSERT(result.to_string().find("Status: UNSATISFIABLE") != std::string::npos);
+
+    result.status = SATSolverResult::SAT_ERROR;
+    result.error_message = "test error";
+    ASSERT(result.is_error());
+    ASSERT(result.to_string().find("Error: test error") != std::string::npos);
+    PASS()
+}
+
+void test_solver_file_errors() {
+    TEST("Solver returns a descriptive error for a missing DIMACS file")
+    SATSolverConfig config;
+    SubgraphSATSolver solver(config);
+
+    const auto result = solver.solve_dimacs_file(get_test_path("missing_solver_input.cnf"));
+    ASSERT(result.is_error());
+    ASSERT(result.error_message.find("Failed to read file:") != std::string::npos);
+    PASS()
+}
+
+void test_utils_parse_and_assignment_validation() {
+    TEST("String parser and assignment validation")
+    const CNFFormula formula = SATSolverUtils::parse_dimacs_string(
+        "c two clauses\np cnf 2 2\n1 -2 0\n-1 2 0\n");
+    ASSERT_EQ(formula.num_variables(), 2);
+    ASSERT_EQ(formula.num_clauses(), 2);
+
+    SATAssignment satisfying(2);
+    satisfying.set(1, true);
+    satisfying.set(2, true);
+    ASSERT(SATSolverUtils::validate_assignment(formula, satisfying));
+
+    SATAssignment failing(2);
+    failing.set(1, true);
+    failing.set(2, false);
+    ASSERT(!SATSolverUtils::validate_assignment(formula, failing));
+    PASS()
+}
+
 // =================================================================
 // Main Test Runner
 // =================================================================
@@ -431,11 +899,36 @@ int main() {
     test_graph_and_json();
     test_full_reduction_chain();
     test_subgraph_to_sat_extractor();
+    test_extractor_uses_mapping();
     test_invalid_clique_reduction_exception();
     test_solver_utils_file_io();
     test_solver_string_handling_and_errors();
     test_solver_parse_subgraph_result();
     test_cli_argument_parsing();
+    test_dimacs_parser_edge_cases();
+    test_parser_invalid_inputs();
+    test_cnf_statistics();
+    test_empty_formula_statistics();
+    test_clause_validation();
+    test_dimacs_round_trip();
+    test_three_sat_boundary();
+    test_to_3sat_long_clause();
+    test_simplify_reordered_duplicates();
+    test_unit_propagate_negative_chain();
+    test_unit_propagate_without_units();
+    test_assignment_unassigned_serialization();
+    test_assignment_empty_clause();
+    test_analyzer_polarity_and_pure_literals();
+    test_analyzer_frequency_counts_variable_once();
+    test_graph_edge_boundaries();
+    test_graph_empty_json_and_neighbors();
+    test_clique_reduction_edges_and_conflicts();
+    test_target_clique_edge_counts();
+    test_empty_reduction_chain();
+    test_extractor_ignores_invalid_mapping();
+    test_solver_result_status_rendering();
+    test_solver_file_errors();
+    test_utils_parse_and_assignment_validation();
     
     std::cout << "\n╔════════════════════════════════════════════╗\n";
     std::cout << "║  Test Summary                              ║\n";
