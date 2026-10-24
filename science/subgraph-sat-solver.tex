@@ -76,7 +76,7 @@
 
 \title{\textbf{SAT-Erfüllbarkeit von booleschen Schaltkreisen
 und die Konsequenzen}\\[0.5em]
-\large Analyse, Reduktionen, Implementierung (subgraph-sat-solver) und Entwurfsprinzipien}
+\large Analyse, Reduktionen, Implementierung (Subgraph-SAT-Solver) und Entwurfsprinzipien}
 \author{\textsc{Stephan Epp}\\ {\small \texttt{\textbf{M.Sc.}}}}
 \date{12. Oktober 2026}
 
@@ -88,7 +88,7 @@ und die Konsequenzen}\\[0.5em]
 \section{Einführung}
 \label{ch:intro}
 
-Diese Arbeit untersucht die Frage, welche booleschen Schaltkreise (als digitale, kombinatorische Schaltungen modelliert) SAT-erfüllbar sind, wie man mit nicht erfüllbaren Schaltungen umgeht und welche Folgerungen dies für Komplexitätstheorie und praktische Anwendungen hat. Die Untersuchung verbindet drei Artefakte des Autors: das Subgraph-Implementierungs-Ökosystem (csubgraph), die Reduktions-Implementierung subgraph-sat-solver und das Experimente-Framework subgraph-sat-solver-experiments. Die zentrale Perspektive ist: „SAT-erfüllbar bedeutet, die Formel (oder die Einbettungsfrage) kann durch einen SAT- oder Subgraph-Solver entschieden werden“ — wir behandeln insbesondere die Reduktion 3-SAT $\to$ Clique $\to$ Subgraph wie sie in subgraph-sat-solver implementiert ist.
+Diese Arbeit untersucht die Frage, welche booleschen Schaltkreise (als digitale, kombinatorische Schaltungen modelliert) SAT-erfüllbar sind, wie man mit nicht erfüllbaren Schaltungen umgeht und welche Folgerungen dies für Komplexitätstheorie und praktische Anwendungen hat. Die Untersuchung verbindet drei Artefakte des Autors: das Subgraph-Implementierungs-Ökosystem (csubgraph), die Reduktions-Implementierung Subgraph-SAT-Solver und das Experimente-Framework Subgraph-SAT-Solver-experiments. Die zentrale Perspektive ist: „SAT-erfüllbar bedeutet, die Formel (oder die Einbettungsfrage) kann durch einen SAT- oder Subgraph-Solver entschieden werden“ — wir behandeln insbesondere die Reduktion 3-SAT $\to$ Clique $\to$ Subgraph wie sie in Subgraph-SAT-Solver implementiert ist.
 
 Ziele:
 \begin{itemize}
@@ -96,7 +96,7 @@ Ziele:
   \item Komplexitätstheoretische Konsequenzen (NP/Vollständigkeit, Implikationen für Klassen).
   \item Praktische Bedeutung: Einsatz, Grenzen, Entwurfsprinzipien.
   \item Analyse von ISCAS-Benchmarks: Kriterien zur Beurteilung ihrer SAT-Erfüllbarkeit, Empfehlungen und methodische Vorgehensweise.
-  \item Verwendung der vorhandenen Implementierung (Codebeispiele aus subgraph-sat-solver) als Blaupause.
+  \item Verwendung der vorhandenen Implementierung (Codebeispiele aus Subgraph-SAT-Solver) als Blaupause.
 \end{itemize}
 
 \section{Begriffe und Modellierung}
@@ -147,7 +147,7 @@ Eine $m$-Clique ist gerade eine Kopie des vollständigen Graphen $K_m$ als nicht
 \end{proof}
 
 \subsection{Implizite Korrektheitsforderungen für die Subgraph-Oracle-Schnittstelle}
-Damit die Implementierung in subgraph-sat-solver die SAT-Korrektheit bewahrt, muss das Subgraph-Orakel eine echte Einbettung (injective Abbildung von $V(K_m)$ nach $V(G_\varphi)$, die Kanten erhält) zurückgeben oder zumindest korrekt mit „ja/nein" antworten. In der Praxis differenziert das Projekt zwischen einem heuristischen Signatur-orakel (Rotation/Signaturen) und einem exakten Entscheider (ExactSubgraph). Nur letzterer garantiert die vollständige Korrektheit der Reduktion; der heuristische Modus kann falsch-negative oder falsch-positive Antworten liefern. Die Implementierung (Adapter) berücksichtigt dies und bietet als Default den exakten Modus (siehe csubgraph: Solver-Adapter).
+Damit die Implementierung in Subgraph-SAT-Solver die SAT-Korrektheit bewahrt, muss das Subgraph-Orakel eine echte Einbettung (injective Abbildung von $V(K_m)$ nach $V(G_\varphi)$, die Kanten erhält) zurückgeben oder zumindest korrekt mit „ja/nein" antworten. In der Praxis differenziert das Projekt zwischen einem heuristischen Signatur-orakel (Rotation/Signaturen) und einem exakten Entscheider (ExactSubgraph). Nur letzterer garantiert die vollständige Korrektheit der Reduktion; der heuristische Modus kann falsch-negative oder falsch-positive Antworten liefern. Die Implementierung (Adapter) berücksichtigt dies und bietet als Default den exakten Modus (siehe csubgraph: Solver-Adapter).
 
 \section{Komplexitätstheoretische Konsequenzen}
 \label{ch:complexity}
@@ -168,13 +168,13 @@ Eine praktische Folgerung: Ist ein praktisches Orakel in „gewöhnlicher" Zeit 
 \subsection{Parameterized Complexity}
 Betrachte das Problem „Existiert eine $k$-Clique in $G$?" Parameterisiert nach $k$ ist das Problem W[1]-vollständig; eine FPT-Lösung in $k$ existiert nicht (sofern FPT$\neq$W[1]). Allerdings existieren in der Praxis Algorithmen, die für kleine $k$ sehr schnell arbeiten — die Clique-Implementierung in csubgraph benutzt z.\,B. $k$-Kernreduktion und Färbungs-Schranken.
 
-\section{Implementierung (subgraph-sat-solver)}
+\section{Implementierung (Subgraph-SAT-Solver)}
 \label{ch:implementation}
 
 In diesem Kapitel verknüpfen wir die theoretischen Aussagen mit der konkreten Implementierung. Aus Platzgründen zeigen wir zentrale Ausschnitte; vollständige Dateien liegen im Repository.
 
 \begin{lstlisting}[language=C++,caption={Auszug: CNF-Repräsentation und 3-SAT-Konversion (aus Cnf.h)},label={lst:cnf}]
-% Dateiquelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/Cnf.h
+% Dateiquelle: https://github.com/naphets86/Subgraph-SAT-Solver/blob/main/Cnf.h
 // ...
 /**
  * Konvertiere beliebige k-SAT zu 3-SAT
@@ -188,7 +188,7 @@ void to_3sat();
 Die Funktionalität zur Vereinfachung (Duplikate, Tautologien, Unit-Propagation) ist wesentlich, weil sie die Größe der resultierenden Clique-/Subgraph-Instanz stark beeinflusst.
 
 \begin{lstlisting}[language=C++,caption={Auszug: Reduktionsklassen (aus Reduction.h)},label={lst:reduction}]
-% Dateiquelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/Reduction.h
+% Dateiquelle: https://github.com/naphets86/Subgraph-SAT-Solver/blob/main/Reduction.h
 // 3-SAT zu Clique Reduktion
 // Knoten: Paare (lit, clause) für jeden Literal in jeder Clause
 // Kanten: zwischen Knoten verschiedener Klauseln, sofern Literale kompatibel
@@ -205,7 +205,7 @@ private:
 Der Solver orchestriert die Schritte: Parsing DIMACS, Normalisierung, Reduktion, Serialisierung der Graphen als JSON, Aufruf des Subgraph-Binaries, Einlesen der Antwort und Belegungsextraktion. Relevanter Ablauf aus SubgraphSATSolver.cpp:
 
 \begin{lstlisting}[language=C++,caption={Auszug: Orchestrierung und Subgraph-Aufruf (aus SubgraphSATSolver.cpp)},label={lst:solver_orch}]
-% Dateiquelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/SubgraphSATSolver.cpp
+% Dateiquelle: https://github.com/naphets86/Subgraph-SAT-Solver/blob/main/SubgraphSATSolver.cpp
 // Schritt 1: Reduktion
 SATToSubgraphReducer reducer(formula);
 auto reduction_result = reducer.reduce();
@@ -229,14 +229,14 @@ Die Implementierung prüft optional die gefundene Belegung gegen die Originalfor
 \section{SAT-Erfüllbarkeit für Schaltkreise (ISCAS-85/89)}
 \label{ch:iscas}
 
-Die ISCAS-Benchmarks sind standardisierte Schaltkreise (combinational und sequential). Um Aussagen über SAT-Erfüllbarkeit zu treffen, liefern wir hier ein genaues, reproduzierbares Verfahren (ohne lokale Ausführung; die Nutzer können dieses Verfahren mit subgraph-sat-solver und den Benchmarks nachmachen).
+Die ISCAS-Benchmarks sind standardisierte Schaltkreise (combinational und sequential). Um Aussagen über SAT-Erfüllbarkeit zu treffen, liefern wir hier ein genaues, reproduzierbares Verfahren (ohne lokale Ausführung; die Nutzer können dieses Verfahren mit Subgraph-SAT-Solver und den Benchmarks nachmachen).
 
 \subsection{Vorgehen}
 \begin{enumerate}
   \item Repräsentiere den Schaltkreis als CNF mittels Tseitin-Transformation. Für sequential circuits: wähle Unrolling-Länge $t$ (bounded model checking).
   \item Füge gewünschte Eigenschaft als Klauseln hinzu (z.\,B. Output = 1).
   \item Vereinfachung: Unit-Propagation, Subsumption, Elimination definiter Literale.
-  \item Verwende subgraph-sat-solver (oder direkten SAT-Solver) zur Entscheidung.
+  \item Verwende Subgraph-SAT-Solver (oder direkten SAT-Solver) zur Entscheidung.
 \end{enumerate}
 
 \subsection{Typische Befunde (generische Prinzipien)}
@@ -312,7 +312,7 @@ SAT-Entscheidungen treten in vielen industriellen Szenarien auf: Verifikation di
 \section{Empfehlungen zur Nutzung}
 \label{ch:use}
 
-Die Implementierung in subgraph-sat-solver kann als reproduzierbares Experimentier-Backend genutzt werden. Konkrete Empfehlungen:
+Die Implementierung in Subgraph-SAT-Solver kann als reproduzierbares Experimentier-Backend genutzt werden. Konkrete Empfehlungen:
 \begin{itemize}
   \item Nutze die optionale Formel-Vereinfachung (\texttt{CNFFormula::simplify}, \texttt{to\_3sat}) vor Reduktion.
   \item Im Adapter: setze \texttt{SUBGRAPH\_MODE=exact} für verifizierbare Ergebnisse; nur für kleine bis mittlere Instanzen.
@@ -368,12 +368,12 @@ Insgesamt bleibt die Reduktionskette 3-SAT $\to$ Clique $\to$ Subgraph ein wertv
 \appendix
 \section{Quellcode-Ausschnitte}
 \label{app:code}
-Siehe im Text die eingebetteten Ausschnitte aus den Implementierungsdateien:
-\begin{itemize}
-  \item Cnf.h — CNF-Parsing, 3-SAT-Konversion (Quelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/Cnf.h)
-  \item Reduction.h — Reduktionsklassen (Quelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/Reduction.h)
-  \item SubgraphSATSolver.cpp — Orchestrierung und Subgraph-Aufruf (Quelle: https://github.com/naphez86/subgraph-sat-solver/blob/main/SubgraphSATSolver.cpp)
-\end{itemize}
+Siehe im Text die eingebetteten Ausschnitte aus den Quellcodedateien im Repository \url{https://github.com/naphets86/Subgraph-SAT-Solver}:
+\begin{description}
+  \item[Cnf.h] — CNF-Parsing, 3-SAT-Konversion
+  \item[Reduction.h] — Reduktionsklasse
+  \item[SubgraphSATSolver.cpp] — Orchestrierung und Subgraph-Aufruf
+\end{description}
 
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
